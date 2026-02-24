@@ -15,6 +15,20 @@ use ratatui::{
 mod engine;
 use engine::{NetworkEngine, human_readable};
 
+fn normalize(data: &[f64]) -> Vec<u64> {
+    let max = data
+        .iter()
+        .cloned()
+        .fold(0.0_f64, f64::max);
+
+    if max == 0.0 {
+        return vec![0; data.len()];
+    }
+
+    data.iter()
+        .map(|v| ((v / max) * 100.0) as u64)
+        .collect()
+}
 
 fn main() -> Result<(), io::Error> {
     enable_raw_mode()?;
@@ -60,16 +74,8 @@ fn main() -> Result<(), io::Error> {
                 .block(Block::default().borders(Borders::ALL).title("Upload"));
 
             // Scale the history data for the sparkline graphs since data method just takes u64
-            let download_scaled: Vec<u64> = stats
-                .download_history
-                .iter()
-                .map(|x| *x as u64)
-                .collect();
-            let upload_scaled: Vec<u64> = stats
-                .upload_history
-                .iter()
-                .map(|x| *x as u64)
-                .collect();
+            let download_scaled = normalize(&stats.download_history);
+            let upload_scaled = normalize(&stats.upload_history);
 
             let download_graph = Sparkline::default()
                 .block(Block::default().borders(Borders::ALL).title("Download History"))
