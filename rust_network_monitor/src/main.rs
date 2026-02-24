@@ -8,7 +8,7 @@ use crossterm::{
 use ratatui::{
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout},
-    widgets::{Block, Borders, Paragraph},
+    widgets::{Block, Borders, Paragraph, Sparkline},
     Terminal,
 };
 
@@ -31,6 +31,7 @@ fn main() -> Result<(), io::Error> {
         terminal.draw(|f| {
             let size = f.size();
 
+            // Creates the layout of the terminal
             let chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .margin(2)
@@ -38,11 +39,14 @@ fn main() -> Result<(), io::Error> {
                     [
                         Constraint::Length(3),
                         Constraint::Length(3),
+                        Constraint::Length(5),
+                        Constraint::Length(5),
                     ]
                         .as_ref(),
                 )
                 .split(size);
 
+            // Create the widgets for download and upload speeds
            let download = Paragraph::new(format!(
                "Download: {}",
                human_readable(stats.download_bps)
@@ -55,8 +59,29 @@ fn main() -> Result<(), io::Error> {
             ))
                 .block(Block::default().borders(Borders::ALL).title("Upload"));
 
+            // Scale the history data for the sparkline graphs since data method just takes u64
+            let download_scaled: Vec<u64> = stats
+                .download_history
+                .iter()
+                .map(|x| *x as u64)
+                .collect();
+            let upload_scaled: Vec<u64> = stats
+                .upload_history
+                .iter()
+                .map(|x| *x as u64)
+                .collect();
+
+            let download_graph = Sparkline::default()
+                .block(Block::default().borders(Borders::ALL).title("Download History"))
+                .data(&download_scaled);
+
+            let upload_graph = Sparkline::default()
+                .block(Block::default().borders(Borders::ALL).title("Upload History"))
+                .data(&upload_scaled);
+
             f.render_widget(download, chunks[0]);
             f.render_widget(upload, chunks[1]);
+            f.render_widget(download_graph, chunks[2]);
         })?;
 
         if event::poll(Duration::from_millis(100))? {

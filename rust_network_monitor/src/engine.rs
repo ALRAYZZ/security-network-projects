@@ -7,6 +7,8 @@ use std::time::Instant;
 pub struct NetworkStats {
     pub download_bps: f64,
     pub upload_bps: f64,
+    pub download_history: Vec<f64>,
+    pub upload_history: Vec<f64>,
 }
 
 pub struct NetworkEngine {
@@ -81,6 +83,8 @@ impl NetworkEngine {
         NetworkStats {
             download_bps: rx_avg,
             upload_bps: tx_avg,
+            download_history: self.rx_history.iter().copied().collect(),
+            upload_history: self.tx_history.iter().copied().collect(),
         }
     }
 }
