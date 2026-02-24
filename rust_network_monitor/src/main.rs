@@ -1,111 +1,78 @@
-use sysinfo::{Networks, System};
-use std::{thread, time::Duration};
-use std::collections::VecDeque;
-use std::time::Instant;
+use std::{io, thread};
+use std::time::Duration;
+use crossterm::{
+    event::{self, Event, KeyCode},
+    execute,
+    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+};
+use ratatui::{
+    backend::CrosstermBackend,
+    layout::{Constraint, Direction, Layout},
+    widgets::{Block, Borders, Paragraph},
+    Terminal,
+};
+
+mod engine;
+use engine::{NetworkEngine, human_readable};
 
 
-struct NetworkStats {
-    download_bps: f64,
-    upload_bps: f64,
-}
+fn main() -> Result<(), io::Error> {
+    enable_raw_mode()?;
+    let mut stdout = io::stdout();
+    execute!(stdout, EnterAlternateScreen)?;
+    let backend = CrosstermBackend::new(stdout);
+    let mut terminal = Terminal::new(backend)?;
 
-struct NetworkEngine {
-    interface_name: String,
-    networks: Networks,
-    previous_rx: u64,
-    previous_tx: u64,
-    previous_time: Instant,
-    rx_history: VecDeque<f64>,
-    tx_history: VecDeque<f64>,
-}
-
-impl NetworkEngine {
-    fn new(interface_name: &str) -> Self {
-        // Ask OS what network interfaces exist
-        // Networks is a struct that holds the data of all network interfaces
-        let mut networks = Networks::new_with_refreshed_list();
-
-        // Initial refresh
-        // Refreshing the data to get the initial values for the selected interface
-        networks.refresh();
-
-        let data = networks
-            .get(interface_name)
-            .expect("Interface not found");
-
-        Self {
-            interface_name: interface_name.to_string(),
-            previous_rx: data.received(),
-            previous_tx: data.transmitted(),
-            networks, // Return networks here after data ends it work since it uses networks to get received and transmitted data
-            previous_time: Instant::now(),
-            rx_history: VecDeque::with_capacity(5),
-            tx_history: VecDeque::with_capacity(5),
-        }
-    }
-
-    fn update(&mut self) ->  NetworkStats {
-        self.networks.refresh();
-
-        let now = Instant::now();
-        let elapsed = now.duration_since(self.previous_time).as_secs_f64();
-
-        let data = self
-            .networks
-            .get(&self.interface_name)
-            .expect("Interface not found");
-
-        // Recalculate the received and transmitted bytes for the selected interface
-        let current_rx = data.received();
-        let current_tx = data.transmitted();
-
-        // Calculate the difference in received and transmitted bytes since the last check
-        // Use saturating_sub to avoid negative values in case of counter reset (underflow)
-        let delta_rx = current_rx.saturating_sub(self.previous_rx) as f64 / elapsed;
-        let delta_tx = current_tx.saturating_sub(self.previous_tx) as f64 / elapsed;
-
-        // Add to history
-        if self.rx_history.len() == 5 { self.rx_history.pop_front(); }
-        if self.tx_history.len() == 5 { self.tx_history.pop_front(); }
-        self.rx_history.push_back(delta_rx);
-        self.tx_history.push_back(delta_tx);
-
-        // Calculate average speed over the history
-        let rx_avg: f64 = self.rx_history.iter().sum::<f64>() / self.rx_history.len() as f64;
-        let tx_avg: f64 = self.tx_history.iter().sum::<f64>() / self.tx_history.len() as f64;
-
-        self.previous_rx = current_rx;
-        self.previous_tx = current_tx;
-        self.previous_time = now;
-
-        NetworkStats {
-            download_bps: rx_avg,
-            upload_bps: tx_avg,
-        }
-    }
-}
-// Change unit based on size of the speed
-fn human_readable(bytes_per_sec: f64) -> String {
-    if bytes_per_sec > 1024.0 * 1024.0 {
-        format!("{:.2} MB/s", bytes_per_sec / (1024.0 * 1024.0))
-    } else if bytes_per_sec > 1024.0 {
-        format!("{:.2} KB/s", bytes_per_sec / 1024.0)
-    } else {
-        format!("{:.2} B/s", bytes_per_sec)
-    }
-}
-
-
-fn main() {
     let mut engine = NetworkEngine::new("Ethernet 3");
 
     loop {
-        thread::sleep(Duration::from_secs(1));
-
         let stats = engine.update();
 
-        println!("Download: {}", human_readable(stats.download_bps));
-        println!("Upload: {}", human_readable(stats.upload_bps));
-        println!("-----------------------------");
+        terminal.draw(|f| {
+            let size = f.size();
+
+            let chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .margin(2)
+                .constraints(
+                    [
+                        Constraint::Length(3),
+                        Constraint::Length(3),
+                    ]
+                        .as_ref(),
+                )
+                .split(size);
+
+           let download = Paragraph::new(format!(
+               "Download: {}",
+               human_readable(stats.download_bps)
+           ))
+               .block(Block::default().borders(Borders::ALL).title("Download"));
+
+            let upload = Paragraph::new(format!(
+                "Upload: {}",
+                human_readable(stats.upload_bps)
+            ))
+                .block(Block::default().borders(Borders::ALL).title("Upload"));
+
+            f.render_widget(download, chunks[0]);
+            f.render_widget(upload, chunks[1]);
+        })?;
+
+        if event::poll(Duration::from_millis(100))? {
+            if let Event::Key(key) = event::read()? {
+                if key.code == KeyCode::Char('q') {
+                    break;
+                }
+            }
+        }
+
+        thread::sleep(Duration::from_secs(1));
     }
+
+    disable_raw_mode()?;
+    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    terminal.show_cursor()?;
+
+    Ok(())
 }
