@@ -88,6 +88,7 @@ fn main() -> Result<(), io::Error> {
             f.render_widget(download, chunks[0]);
             f.render_widget(upload, chunks[1]);
             f.render_widget(download_graph, chunks[2]);
+            f.render_widget(upload_graph, chunks[3]);
         })?;
 
         if event::poll(Duration::from_millis(100))? {
