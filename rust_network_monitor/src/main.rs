@@ -1,6 +1,7 @@
 extern crate core;
 
 use std::{io, thread};
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 use crossterm::{
     event::{self, Event, KeyCode},
@@ -48,11 +49,12 @@ fn main() -> Result<(), io::Error> {
 
     let mut engine = NetworkEngine::new(INTERFACE_NAME_SYS);
 
-    thread::spawn(|| {
-        sniffer::run_sniffer(INTERFACE_NAME_PCAP);
-    });
+    let counter = sniffer::start_packet_counter(INTERFACE_NAME_PCAP);
 
     loop {
+        let bytes = counter.load(Ordering::Relaxed);
+        println!("Total captured bytes: {}", bytes);
+
         let stats = engine.update();
 
         terminal.draw(|f| {

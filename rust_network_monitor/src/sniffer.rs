@@ -1,26 +1,33 @@
 use pcap::{Device, Capture};
+use std::sync::{Arc, atomic::{AtomicU64, Ordering}};
+use std::thread;
 
-pub fn run_sniffer(interface_name: &str) {
-    // Ask pcap to list all network interfaces and find the one that matches the provided name
-    let device = Device::list()
-        .expect("Failed to list devices")
-        .into_iter()
-        .find(|d| d.name == interface_name)
-        .expect("Interface not found");
 
-    // Create a capture handle for the selected interface
-    // Promisc captures all packets on NIC, immediate packets delivered instantly without buffering
-    let mut cap = Capture::from_device(device)
-        .unwrap()
-        .promisc(true)
-        .immediate_mode(true)
-        .open()
-        .unwrap();
 
-    println!("Listening on {}", interface_name);
+pub fn start_packet_counter(interface_name: &str) -> Arc<AtomicU64> {
+    let byte_counter = Arc::new(AtomicU64::new(0));
+    let counter_clone = Arc::clone(&byte_counter);
+    let interface = interface_name.to_string();
 
-    // Capture packets in a loop and print their lengths
-    while let Ok(packet) = cap.next_packet() {
-        println!("Packet captured: {} bytes", packet.data.len());
-    }
+    // Packet capturing blocks main thread, so we run it in a separate thread
+    thread::spawn(move || {
+        let device = Device::list()
+            .expect("Failed to list devices")
+            .into_iter()
+            .find(|d| d.name == interface)
+            .expect("Interface not found");
+
+        let mut cap = Capture::from_device(device)
+            .unwrap()
+            .promisc(true)
+            .immediate_mode(true)
+            .open()
+            .unwrap();
+
+        while let Ok(packet) = cap.next_packet() {
+            counter_clone.fetch_add(packet.data.len() as u64, Ordering::Relaxed);
+        }
+    });
+
+    byte_counter
 }
