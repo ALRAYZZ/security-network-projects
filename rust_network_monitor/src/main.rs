@@ -53,7 +53,6 @@ fn main() -> Result<(), io::Error> {
 
     loop {
         let bytes = counter.load(Ordering::Relaxed);
-        println!("Total captured bytes: {}", bytes);
 
         let stats = engine.update();
 
