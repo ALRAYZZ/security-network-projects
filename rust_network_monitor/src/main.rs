@@ -1,3 +1,5 @@
+extern crate core;
+
 use std::{io, thread};
 use std::time::Duration;
 use crossterm::{
@@ -5,6 +7,11 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
+
+// NI NAME HARDCODED
+const INTERFACE_NAME_SYS: &str = "Ethernet 3";
+const INTERFACE_NAME_PCAP: &str = r"\Device\NPF_{A3091161-D8AB-480E-A7D6-612037FAADB9}";
+
 use ratatui::{
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout},
@@ -13,6 +20,8 @@ use ratatui::{
 };
 
 mod engine;
+mod sniffer;
+
 use engine::{NetworkEngine, human_readable};
 
 fn normalize(data: &[f64]) -> Vec<u64> {
@@ -37,7 +46,11 @@ fn main() -> Result<(), io::Error> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let mut engine = NetworkEngine::new("Ethernet 3");
+    let mut engine = NetworkEngine::new(INTERFACE_NAME_SYS);
+
+    thread::spawn(|| {
+        sniffer::run_sniffer(INTERFACE_NAME_PCAP);
+    });
 
     loop {
         let stats = engine.update();
@@ -99,7 +112,7 @@ fn main() -> Result<(), io::Error> {
             }
         }
 
-        thread::sleep(Duration::from_secs(1));
+        thread::sleep(Duration::from_millis(100));
     }
 
     disable_raw_mode()?;
