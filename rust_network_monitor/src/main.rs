@@ -47,9 +47,8 @@ fn main() -> Result<(), io::Error> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let mut engine = NetworkEngine::new(INTERFACE_NAME_SYS);
-
     let counter = sniffer::start_packet_counter(INTERFACE_NAME_PCAP);
+    let mut engine = NetworkEngine::new(counter.clone());
 
     loop {
         let bytes = counter.load(Ordering::Relaxed);

@@ -1,6 +1,8 @@
 use sysinfo::{Networks, System};
 use std::{thread, time::Duration};
 use std::collections::VecDeque;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
 
@@ -12,79 +14,49 @@ pub struct NetworkStats {
 }
 
 pub struct NetworkEngine {
-    interface_name: String,
-    networks: Networks,
-    previous_rx: u64,
-    previous_tx: u64,
-    previous_time: Instant,
-    rx_history: VecDeque<f64>,
-    tx_history: VecDeque<f64>,
+    counter: Arc<AtomicU64>,
+    last_total: u64,
+    last_instant: Instant,
+    pub download_history: Vec<f64>
 }
 
 impl NetworkEngine {
-    pub fn new(interface_name: &str) -> Self {
-        // Ask OS what network interfaces exist
-        // Networks is a struct that holds the data of all network interfaces
-        let mut networks = Networks::new_with_refreshed_list();
-
-        // Initial refresh
-        // Refreshing the data to get the initial values for the selected interface
-        networks.refresh();
-
-        let data = networks
-            .get(interface_name)
-            .expect("Interface not found");
-
+    pub fn new(counter: Arc<AtomicU64>) -> Self {
         Self {
-            interface_name: interface_name.to_string(),
-            previous_rx: data.received(),
-            previous_tx: data.transmitted(),
-            networks, // Return networks here after data ends it work since it uses networks to get received and transmitted data
-            previous_time: Instant::now(),
-            rx_history: VecDeque::with_capacity(5),
-            tx_history: VecDeque::with_capacity(5),
+            counter,
+            last_total: 0,
+            last_instant: Instant::now(),
+            download_history: Vec::with_capacity(60), // Store last 60
         }
     }
 
     pub fn update(&mut self) ->  NetworkStats {
-        self.networks.refresh();
-
         let now = Instant::now();
-        let elapsed = now.duration_since(self.previous_time).as_secs_f64();
+        let current_total = self.counter.load(Ordering::Relaxed);
 
-        let data = self
-            .networks
-            .get(&self.interface_name)
-            .expect("Interface not found");
+        let delta_bytes = current_total.saturating_sub(self.last_total);
 
-        // Recalculate the received and transmitted bytes for the selected interface
-        let current_rx = data.received();
-        let current_tx = data.transmitted();
+        let elapsed = now.duration_since(self.last_instant).as_secs_f64();
 
-        // Calculate the difference in received and transmitted bytes since the last check
-        // Use saturating_sub to avoid negative values in case of counter reset (underflow)
-        let delta_rx = current_rx.saturating_sub(self.previous_rx) as f64 / elapsed;
-        let delta_tx = current_tx.saturating_sub(self.previous_tx) as f64 / elapsed;
+        let bps = if elapsed > 0.0 {
+            delta_bytes as f64 / elapsed
+        } else {
+            0.0
+        };
 
-        // Add to history
-        if self.rx_history.len() == 5 { self.rx_history.pop_front(); }
-        if self.tx_history.len() == 5 { self.tx_history.pop_front(); }
-        self.rx_history.push_back(delta_rx);
-        self.tx_history.push_back(delta_tx);
+        self.last_total = current_total;
+        self.last_instant = now;
 
-        // Calculate average speed over the history
-        let rx_avg: f64 = self.rx_history.iter().sum::<f64>() / self.rx_history.len() as f64;
-        let tx_avg: f64 = self.tx_history.iter().sum::<f64>() / self.tx_history.len() as f64;
-
-        self.previous_rx = current_rx;
-        self.previous_tx = current_tx;
-        self.previous_time = now;
+        self.download_history.push(bps);
+        if self.download_history.len() > 60 {
+            self.download_history.remove(0);
+        }
 
         NetworkStats {
-            download_bps: rx_avg,
-            upload_bps: tx_avg,
-            download_history: self.rx_history.iter().copied().collect(),
-            upload_history: self.tx_history.iter().copied().collect(),
+            download_bps: bps,
+            upload_bps: 0.0, // Upload not implemented
+            download_history: self.download_history.clone(),
+            upload_history: vec![],
         }
     }
 }
